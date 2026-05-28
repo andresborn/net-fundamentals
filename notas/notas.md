@@ -69,7 +69,7 @@ Is used to determine whether an IP address is in the same subnet.
 
 A subnet mask is a 32-bit number that masks an IP address and divides the IP address into network and host portions. Example: `255.255.255.0` or `/24`. A bitwise AND operation between the IP address and subnet mask yields the network address.
 
-![Screenshot 2026-04-28 at 11.34.18 AM.png](/var/folders/2h/86m93r9x40g3r5spy6frwg080000gn/T/TemporaryItems/NSIRD_screencaptureui_qqtmL1/Screenshot%202026-04-28%20at%2011.34.18 AM.png)
+![Screenshot 2026-05-27 at 7.17.38 AM.png](assets/9ca91bd1ce046dbf6418907e79d488edc40a163a.png)
 
 ### Default Gateway
 
@@ -87,7 +87,7 @@ IP Header is 20 bytes (can increase to size 60 if options enabled).
 
 Data Section can go up to 65,515 (65,535 minus header) bytes but the average is 1500. This is because the average Ethernet MTU (Maximum Transmission Unit). This is a common maximum.
 
-![Screenshot 2026-04-29 at 9.20.14 AM.png](/var/folders/2h/86m93r9x40g3r5spy6frwg080000gn/T/TemporaryItems/NSIRD_screencaptureui_THap8Z/Screenshot%202026-04-29%20at%209.20.14 AM.png)
+![Screenshot 2026-05-27 at 7.18.32 AM.png](assets/71ad69407f60a71d1edd630315953f0cb54d28ee.png)
 
 Reference: [IPv4 - Wikipedia](https://en.wikipedia.org/wiki/IPv4#Packet_structure)
 
@@ -188,9 +188,11 @@ Receiver demultiplexes the UDP datagrams to each app.
 
 ### UDP Datagram Structure
 
-![Screenshot 2026-05-03 at 11.18.25 AM.png](/var/folders/2h/86m93r9x40g3r5spy6frwg080000gn/T/TemporaryItems/NSIRD_screencaptureui_O8iLU8/Screenshot%202026-05-03%20at%2011.18.25 AM.png)
+![Screenshot 2026-05-27 at 7.19.18 AM.png](assets/618d06446d1f6dc62723f6af328c870c2ea9467b.png)
 
-- UDP header is 8 bytes only (in IPv4)
+> Reference: [User Datagram Protocol - Wikipedia](https://en.wikipedia.org/wiki/User_Datagram_Protocol)
+
+UDP header is 8 bytes only (in IPv4)
 
 - Datagram slides into an IP packet as "data"
 
@@ -259,7 +261,7 @@ The Connection is identified by four properties: **Source IP and Port**, and **D
 
 #### Connection establishment: three-way handshake
 
-![Screenshot 2026-05-03 at 12.52.35 PM.png](/var/folders/2h/86m93r9x40g3r5spy6frwg080000gn/T/TemporaryItems/NSIRD_screencaptureui_0P7XnL/Screenshot%202026-05-03%20at%2012.52.35 PM.png)
+![Screenshot 2026-05-27 at 7.20.34 AM.png](assets/ba85d08494b67633afce59767db73015f672b832.png)
 
 Step 1: Client sends SYN (Synchronize Sequence Number) to server, indicating to the server that the client wishes to establish a connection and with what sequence number it will send segments with.
 
@@ -289,11 +291,23 @@ App 1 sends segments 1, 2 and 3 to App 2. Segment 3 is lost, App 2 acknowledges 
 
 #### Connection termination
 
-![Screenshot 2026-05-03 at 12.58.44 PM.png](/var/folders/2h/86m93r9x40g3r5spy6frwg080000gn/T/TemporaryItems/NSIRD_screencaptureui_eMAm6J/Screenshot%202026-05-03%20at%2012.58.44 PM.png)
+- Fin ->
+
+- Ack <-
+
+- Fin <-
+
+- Ack ->
+
+![Screenshot 2026-05-27 at 7.22.46 AM.png](assets/5fa0dd89c5575ff0f0791cff1d6251467233123a.png)
+
+> Reference: [Transmission Control Protocol - Wikipedia](https://en.wikipedia.org/wiki/Transmission_Control_Protocol)
 
 ### TCP Segment
 
-![Screenshot 2026-05-03 at 3.22.14 PM.png](/var/folders/2h/86m93r9x40g3r5spy6frwg080000gn/T/TemporaryItems/NSIRD_screencaptureui_zPx3yT/Screenshot%202026-05-03%20at%203.22.14 PM.png)
+![Screenshot 2026-05-27 at 7.22.03 AM.png](assets/059b4c1921aee70a0a5bee6ce2992b68a877cf94.png)
+
+> Reference: [Transmission Control Protocol - Wikipedia](https://en.wikipedia.org/wiki/Transmission_Control_Protocol)
 
 - Header is 20 bytes (and can go up to 60)
 
@@ -525,7 +539,7 @@ Certificates are a way of **proving authenticity.** A common usage is in **HTTPS
 
 The Maximum Transmission Unit is the **size of the frame**. The Network default is 1500 bytes. You can check your Network configurations and will find something like this. Some networks can have bigger size frames.
 
-![Screenshot 2026-05-07 at 5.50.06 PM.png](/var/folders/2h/86m93r9x40g3r5spy6frwg080000gn/T/TemporaryItems/NSIRD_screencaptureui_lVCUbV/Screenshot%202026-05-07%20at%205.50.06 PM.png)
+![Screenshot 2026-05-27 at 7.24.36 AM.png](assets/958abab0a75bc6c14f6bcab36d980f5f5926e233.png)
 
 #### IP Packets and MTU
 
@@ -607,11 +621,13 @@ TCP requires the initial three-way handshake in order to start a connection. TCP
 
 Hosts have **interfaces**.
 
-> ![Screenshot 2026-05-08 at 4.39.42 PM.png](/var/folders/2h/86m93r9x40g3r5spy6frwg080000gn/T/TemporaryItems/NSIRD_screencaptureui_tVmSEv/Screenshot%202026-05-08%20at%204.39.42 PM.png)
-> 
+![Screenshot 2026-05-27 at 7.25.14 AM.png](assets/a0a294c7919a132802ea5fad731da869f9ef62d6.png)
+
 > An **interface** is a shared boundary across which two or more separate components of a computer system exchange information.
 > 
-> [Interface (computing) - Wikipedia](https://en.wikipedia.org/wiki/Interface_(computing))
+> Reference: [Interface (computing) - Wikipedia](https://en.wikipedia.org/wiki/Interface_(computing))
+
+> Note: On Linux you can run `ip addr` to get a list of the host's interfaces
 
 For our use cases, a host may have an interface for Wifi, another one for Ethernet, and maybe for each will have the IPv4 and IPv6 versions. We, as software engineers building a server must tell it to **listen** on which interface and port.
 
