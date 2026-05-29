@@ -58,9 +58,13 @@ func handleConnection(conn net.Conn) {
 
 	log.Printf("Method %s, URI %s, Protocol Version %s", method, uri, protocolVersion)
 
-	for _, header := range splitLines[1:] {
-		fmt.Println(header)
-	}
+	headers := splitLines[1 : len(splitLines)-2] // Remove body (last) and \r\n\r\n (second to last)
+	body := splitLines[len(splitLines)-1]        // Select last from slice
+
+	// Todo: Format headers into JSON and return everything to client?
+
+	fmt.Println(headers)
+	fmt.Println(body)
 
 }
 
