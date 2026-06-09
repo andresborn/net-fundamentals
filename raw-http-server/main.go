@@ -1,8 +1,8 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"strings"
@@ -36,46 +36,89 @@ func main() {
 func handleConnection(conn net.Conn) {
 	defer conn.Close()
 
-	buffer := make([]byte, 1024)
+	for {
+		request, err := readRequest(conn)
 
-	_, err := conn.Read(buffer)
+		if err == io.EOF {
+			return // Client done,
+		}
 
-	if err != nil {
-		log.Println("Error reading connection: ", err)
-		return
+		if err != nil {
+			log.Println("Error: ", err)
+		}
+
+		method, uri, _ := parseRequest(request)
+
+		// Bonus: could add checking method and uri for malformed requests.
+
+		if method != "GET" {
+			body := "<h1>405 Method Not Allowed</h1>"
+			response := fmt.Sprintf("HTTP/1.1 405 Method Not Allowed\r\nContent-Length: %d\r\nContent-Type: text/html\r\n\r\n%s", len(body), body)
+			conn.Write([]byte(response))
+			continue
+		}
+
+		if uri == "/" {
+			body := "<h1>Welcome</h1>"
+			response := fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Length: %d\r\nContent-Type: text/html\r\n\r\n%s", len(body), body)
+			conn.Write([]byte(response))
+			continue
+		}
+
+		if uri == "/about" {
+			body := "<h1>This is my raw HTTP Server, written completely by hand.</h1>"
+			response := fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Length: %d\r\nContent-Type: text/html\r\n\r\n%s", len(body), body)
+			conn.Write([]byte(response))
+			continue
+		}
+
+		body := "<h1>404 Not Found</h1>"
+		response := fmt.Sprintf("HTTP/1.1 404 Not Found\r\nContent-Length: %d\r\nContent-Type: text/html\r\n\r\n%s", len(body), body)
+		conn.Write([]byte(response))
 	}
 
-	message := string(buffer[:])
+}
+
+func readRequest(conn net.Conn) (string, error) {
+	var accumulated []byte
+	buffer := make([]byte, 1024)
+
+	for {
+		n, err := conn.Read(buffer)
+
+		if err == io.EOF {
+			return "", err
+		}
+
+		if err != nil {
+			log.Println("Error reading connection: ", err)
+			return "", err
+		}
+
+		accumulated = append(accumulated, buffer[:n]...)
+
+		if strings.Contains(string(accumulated), "\r\n\r\n") {
+			return string(accumulated), nil
+		}
+	}
+
+}
+
+func parseRequest(request string) (string, string, string) {
 	// Split by new lines
-	splitLines := strings.Split(message, "\r\n")
+	splitLines := strings.Split(request, "\r\n")
+	if len(splitLines) == 0 {
+		return "", "", ""
+	}
 
 	// Split start line by empty spaces
 	startLine := strings.Split(splitLines[0], " ")
+	if len(startLine) < 3 {
+		return "", "", ""
+	}
 
 	method := startLine[0]
 	uri := startLine[1]
 	protocolVersion := startLine[2]
-
-	log.Printf("Method %s, URI %s, Protocol Version %s", method, uri, protocolVersion)
-
-	headers := splitLines[1 : len(splitLines)-2] // Remove body (last) and \r\n\r\n (second to last)
-	body := splitLines[len(splitLines)-1]        // Select last from slice
-
-	// Todo: Format headers into JSON and return everything to client?
-
-	fmt.Println(headers)
-	fmt.Println(body)
-
-}
-
-func readMsg(conn net.Conn) {
-	reader := bufio.NewReader(conn)
-	message, err := reader.ReadString('\n')
-
-	if err != nil {
-		log.Println("Error reading message: ", err)
-		return
-	}
-
-	log.Println("Message: ", message)
+	return method, uri, protocolVersion
 }
