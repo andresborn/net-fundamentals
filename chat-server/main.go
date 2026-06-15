@@ -5,23 +5,18 @@ import (
 	"log"
 	"net"
 	"strings"
+	"time"
 )
-
-// TCP Server listens and accepts incoming connections
-
-// handleClientConnections
-// goroutine per connection, loop to collect buffer message
-// append message to channel
-
-// broadcastMessages
-// goroutine with loop over range of message channel and sends to all
-// track connections
-
-// In order to manage and keep track of connections I need some way to store that list
 
 type Message struct {
 	from string
 	text string
+}
+
+type Client struct {
+	conn     net.Conn
+	id       string
+	outgoing []Message
 }
 
 var HOST = "127.0.0.1"
@@ -40,11 +35,32 @@ func main() {
 
 	log.Printf("Listening on %s", addr)
 
-	messages := make(chan Message)
+	messagesChan := make(chan Message)
+	subscribeChan := make(chan Client)
+	unsubscribeChan := make(chan Client)
+	var clients = make(map[string]Client)
 
 	go func() {
-		for message := range messages {
-			log.Printf("New message from %s: %s", message.from, message.text)
+		for {
+			select {
+			case client := <-subscribeChan:
+				{
+					clients[client.id] = client
+				}
+			case client := <-unsubscribeChan:
+				{
+					delete(clients, client.id)
+				}
+			case message := <-messagesChan:
+				{
+					for _, client := range clients {
+						if message.from == client.id {
+							continue
+						}
+						sendMessage(client.conn, message)
+					}
+				}
+			}
 		}
 	}()
 
@@ -56,26 +72,31 @@ func main() {
 			continue
 		}
 
-		go handleConnection(conn, messages)
+		go handleConnection(conn, messagesChan, subscribeChan, unsubscribeChan)
 	}
 
 }
 
-func handleConnection(conn net.Conn, messages chan Message) {
+func handleConnection(conn net.Conn, messagesChan chan Message, subscribeChan chan Client,
+	unsubscribeChan chan Client) {
+
+	id := getId(conn)
+	client := Client{conn: conn, id: id}
 
 	defer func() {
 		log.Printf("Closing connection with %s\n", conn.RemoteAddr().String())
+		unsubscribeChan <- client
 		conn.Close()
 	}()
 
-	id := strings.Split(conn.RemoteAddr().String(), ":")[1]
+	subscribeChan <- client
 	log.Printf("Client connection: %s\n", conn.RemoteAddr().String())
 
 	scanner := bufio.NewScanner(conn)
 
 	for scanner.Scan() {
 		message := Message{from: id, text: scanner.Text()}
-		messages <- message
+		messagesChan <- message
 	}
 
 	if err := scanner.Err(); err != nil {
@@ -83,4 +104,13 @@ func handleConnection(conn net.Conn, messages chan Message) {
 		return
 	}
 
+}
+
+func getId(conn net.Conn) string {
+	id := strings.Split(conn.RemoteAddr().String(), ":")[1]
+	return id
+}
+
+func sendMessage(conn net.Conn, message Message) {
+	conn.Write([]byte(message.from + ": " + message.text + " at " + time.Now().String() + "\n"))
 }
