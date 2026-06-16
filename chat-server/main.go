@@ -16,7 +16,7 @@ type Message struct {
 type Client struct {
 	conn     net.Conn
 	id       string
-	outgoing []Message
+	outgoing chan Message // Client inbox. Server flushes out these messages to the client.
 }
 
 var HOST = "127.0.0.1"
@@ -45,20 +45,34 @@ func main() {
 			select {
 			case client := <-subscribeChan:
 				{
+					// Add it to the list to keep track of connected clients
 					clients[client.id] = client
+
+					// Create goroutine to send messages to other clients concurrently
+					go func() {
+						for msg := range client.outgoing {
+							sendMessage(client.conn, msg)
+						}
+					}()
 				}
 			case client := <-unsubscribeChan:
 				{
+					close(client.outgoing)
 					delete(clients, client.id)
 				}
 			case message := <-messagesChan:
 				{
-					for _, client := range clients {
-						if message.from == client.id {
+					// Pass the message from the global inbox "messages" channel to all other clients' outgoing channels
+					for _, c := range clients {
+						if message.from == c.id { // Don't add to client inbox if message comes from them
 							continue
 						}
-						sendMessage(client.conn, message)
+						c.outgoing <- message
 					}
+				}
+			default:
+				{
+					// Channel full - message dropped. Ensures server is not blocked because of slow client
 				}
 			}
 		}
@@ -81,12 +95,12 @@ func handleConnection(conn net.Conn, messagesChan chan Message, subscribeChan ch
 	unsubscribeChan chan Client) {
 
 	id := getId(conn)
-	client := Client{conn: conn, id: id}
+	client := Client{conn: conn, id: id, outgoing: make(chan Message, 16)}
 
 	defer func() {
 		log.Printf("Closing connection with %s\n", conn.RemoteAddr().String())
-		unsubscribeChan <- client
 		conn.Close()
+		unsubscribeChan <- client
 	}()
 
 	subscribeChan <- client
