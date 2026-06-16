@@ -19,11 +19,13 @@ type Client struct {
 	outgoing chan Message // Client inbox. Server flushes out these messages to the client.
 }
 
-var HOST = "127.0.0.1"
-var PORT = "8080"
+var (
+	Host = "127.0.0.1"
+	Port = "8080"
+)
 
 func main() {
-	addr := net.JoinHostPort(HOST, PORT)
+	addr := net.JoinHostPort(Host, Port)
 	listener, err := net.Listen("tcp", addr)
 
 	if err != nil {
