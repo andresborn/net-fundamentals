@@ -5,7 +5,6 @@ import (
 	"log"
 	"net"
 	"strings"
-	"time"
 )
 
 type Message struct {
@@ -64,17 +63,19 @@ func main() {
 				}
 			case message := <-messagesChan:
 				{
+					log.Printf("New message: '%s' from %s", message.text, message.from)
 					// Pass the message from the global inbox "messages" channel to all other clients' outgoing channels
 					for _, c := range clients {
 						if message.from == c.id { // Don't add to client inbox if message comes from them
 							continue
 						}
-						c.outgoing <- message
+						select {
+
+						case c.outgoing <- message:
+						default:
+							// Slow client. Dropped. Ensures server is not blocked because of slow client
+						}
 					}
-				}
-			default:
-				{
-					// Channel full - message dropped. Ensures server is not blocked because of slow client
 				}
 			}
 		}
@@ -128,5 +129,5 @@ func getId(conn net.Conn) string {
 }
 
 func sendMessage(conn net.Conn, message Message) {
-	conn.Write([]byte(message.from + ": " + message.text + " at " + time.Now().String() + "\n"))
+	conn.Write([]byte(message.from + ": " + message.text + "\n"))
 }

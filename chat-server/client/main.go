@@ -6,6 +6,7 @@ import (
 	"log"
 	"math/rand"
 	"net"
+	"sync"
 	"time"
 )
 
@@ -23,15 +24,16 @@ var GREETINGS = []string{
 }
 
 func main() {
-	// Loop and create clients
+	var wg sync.WaitGroup
+
 	for range 10 {
-		go createClient()
+		wg.Go(func() {
+			createClient()
+		})
 	}
 
-	select {}
-
-	// Randomly kill client connections
-
+	wg.Wait()
+	fmt.Println("All clients disconnected.")
 }
 
 func createClient() {
@@ -43,7 +45,7 @@ func createClient() {
 	conn, err := net.Dial("tcp", addr)
 
 	if err != nil {
-		log.Fatal("Error connecting: ", err)
+		log.Println("Error connecting: ", err)
 		return
 	}
 
@@ -52,19 +54,35 @@ func createClient() {
 	n := rand.Intn(len(GREETINGS))
 	randomGreeting := GREETINGS[n]
 
+	var wg sync.WaitGroup
+
+	wg.Add(2)
+
 	go func() {
+		defer wg.Done()
+
 		for {
-			conn.Write([]byte(randomGreeting + "\n"))
-			seconds := time.Duration(rand.Intn(30))
+			seconds := time.Duration(rand.Intn(50)) + 10
 			time.Sleep(seconds * time.Second)
+
+			greet := randomGreeting + "\n"
+			fmt.Println("Sending: " + greet)
+
+			conn.SetWriteDeadline(time.Now().Add(3 * time.Second))
+			_, err := conn.Write([]byte(greet))
+			if err != nil {
+				log.Println("Error sending message: ", err)
+				return
+			}
 		}
 	}()
 
 	go func() {
+		defer wg.Done()
 		scanner := bufio.NewScanner(conn)
 
 		for scanner.Scan() {
-			fmt.Println(scanner.Text())
+			fmt.Println("Received: " + scanner.Text())
 		}
 
 		if err := scanner.Err(); err != nil {
@@ -73,6 +91,6 @@ func createClient() {
 		}
 	}()
 
-	select {}
+	wg.Wait()
 
 }
