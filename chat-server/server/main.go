@@ -5,6 +5,7 @@ import (
 	"log"
 	"net"
 	"strings"
+	"sync"
 )
 
 type Message struct {
@@ -32,7 +33,12 @@ func main() {
 		return
 	}
 
-	defer listener.Close()
+	var wg sync.WaitGroup
+
+	defer func() {
+		listener.Close()
+		wg.Wait()
+	}()
 
 	log.Printf("Listening on %s", addr)
 
@@ -41,7 +47,7 @@ func main() {
 	unsubscribeChan := make(chan Client)
 	var clients = make(map[string]Client)
 
-	go func() {
+	wg.Go(func() {
 		for {
 			select {
 			case client := <-subscribeChan:
@@ -50,11 +56,11 @@ func main() {
 					clients[client.id] = client
 
 					// Create goroutine to send messages to other clients concurrently
-					go func() {
+					wg.Go(func() {
 						for msg := range client.outgoing {
 							sendMessage(client.conn, msg)
 						}
-					}()
+					})
 				}
 			case client := <-unsubscribeChan:
 				{
@@ -79,7 +85,7 @@ func main() {
 				}
 			}
 		}
-	}()
+	})
 
 	for {
 		conn, err := listener.Accept()
@@ -88,8 +94,7 @@ func main() {
 			log.Println("Error accepting connection: ", err)
 			continue
 		}
-
-		go handleConnection(conn, messagesChan, subscribeChan, unsubscribeChan)
+		wg.Go(func() { handleConnection(conn, messagesChan, subscribeChan, unsubscribeChan) })
 	}
 
 }
