@@ -123,7 +123,13 @@ Examples:
 
 
 
-> **RabbitMQ** uses the Push pattern. The message broker pushes messages to the clients. On the other hand, Kafka, another popular message broker uses polling, where the clients ask for the data when they are ready.
+> **RabbitMQ** uses the Push pattern. The message broker pushes messages to the clients. 
+> 
+> - Pushes to consumers by default (messages delivered immediately)
+> 
+> **Kafka**, another popular message broker uses polling, where the clients ask for the data when they are ready.
+> 
+> - Consumers pull (poll) at their own pace; this is *long polling* or *pull-based*, not push
 
 
 
@@ -185,6 +191,20 @@ The client sends multiple requests checking if the request is done.
 
 
 
+> Note: I've found conflicting definitions for this pattern. Others suggest that Long Polling never returns a jobId, it simply holds the request until it is ready.
+> 
+> - Client sends a request
+> - Server holds the connection open — does NOT respond immediately
+> - Server waits until data is available (or a timeout occurs)
+> - Server responds with the data
+> - Client processes and immediately sends another long-poll request
+> 
+> No handle/jobId needed — the hanging request IS the wait.
+> 
+> It would seem that Kafka operates like this.
+
+
+
 > **Kafka**, the message broker, implements this pattern in it's design. If you have clients that cannot process the data, it could get lost, so instead it is the clients who request the data when ready.
 
 
@@ -192,69 +212,6 @@ The client sends multiple requests checking if the request is done.
 **Pros:** Less requests, more friendly to the network and the backend infrastructure.
 
 **Cons:** Not real-time.
-
-
-
-### Server-Sent Events (Move to protocols section later)
-
-*One request. A very, very, very long response.*
-
-In a way it is an implementation of the Push pattern within the boundaries of the request-response pattern.
-
-> **Server-Sent Events (SSE)** is a server push technology enabling a client to receive automatic updates from a server via an HTTP connection, and describes how servers can initiate data transmission towards clients once an initial client connection has been established. 
-> 
-> They are commonly used to send message updates or continuous data streams to a browser client through a JavaScript API called EventSource. 
-> 
-> The media type for SSE is `text/event-stream`. 
-> 
-> [Server-sent events - Wikipedia](https://en.wikipedia.org/wiki/Server-sent_events)
-
-
-
-**How it works:**
-
-- Client sends a request.
-
-- Server sends events as part of the response
-
-- Server never writes the end of the response
-
-- It's still a request, it just never ends.
-
-
-
-Mock example of a stock value ticker.
-
-```http
-// Request
-GET /events HTTP/1.1
-Host: example.com
-Accept: text/event-stream
-Cache-Control: no-cache
-Connection: keep-alive
-
-// Response
-HTTP/1.1 200 OK
-Content-Type: text/event-stream
-Cache-Control: no-cache
-Connection: keep-alive
-
-data: {"price": 142.50, "symbol": "AAPL"}
-
-data: {"price": 142.55, "symbol": "AAPL"}
-
-data: {"price": 142.48, "symbol": "AAPL"}
-
-// Connection stays open — server keeps pushing indefinitely
-```
-
-> Another good real-life example is that of LLM chat clients. If you check the network tab in your browser when prompting a chatbot you'll see your prompt sent as an HTTP POST request and the response will be a stream of data incoming in the same response.
-
-
-
-**Pros:** real-time, browser-friendly, HTTP
-
-**Cons:** client must be online, client may not be able to handle data, browser limitations of 6 TCP connections (if using HTTP/1.1) 
 
 
 
@@ -322,5 +279,114 @@ Diagram of both:
 > [HTTP/2](https://en.wikipedia.org/wiki/HTTP/2) implements multiplexing by sending multiple requests over a single TCP connection (fixing the HTTP-transaction-level head-of-line blocking "Head-of-line blocking" problem in HTTP 1.x
 
 
+
+### Stateful vs Stateless
+
+State is a complicated topic because you can have a stateful system composed of mostly stateless components. 
+
+**Stateful:** a system stores some information (state) about the client in memory. It needs this information in order to function properly.
+
+**Stateless:** the client is responsible for transferring the state with every request. The backend may safely loose that state and will continue to function properly.
+
+Example of a **stateful backend:**
+
+- User logs in to website, session token is stored in the backend
+
+- If something happens to backend, user session is lost.
+
+Example of a **stateless backend:**
+
+- User logs in to website, session token is delivered to client
+
+- Client sends session token on every request
+
+- Backend reboots, client makes request with session token and is still able to perform necessary actions.
+
+In a real-world scenario you wouldn't store the session token in memory (your servers could be behind a reverse proxy). You would probably have a database that persists the state, and your backend would be stateless. The client would store a session token but not contain all of the information as it could be sensitive.
+
+### Sidecar Pattern
+
+TODO
+
+[Sidecar Design Pattern for Microservices - GeeksforGeeks](https://www.geeksforgeeks.org/system-design/sidecar-design-pattern-for-microservices/)
+
+
+
+## Communication Protocols (mostly Application-Layer)
+
+- TLS
+
+- HTTP (and HTTP/2 and HTTP/3)
+
+- Server-Sent Events
+
+- WebSockets
+
+- gRPC
+
+- WebRTC
+
+
+
+
+
+### Server-Sent Events
+
+*One request. A very, very, very long response.*
+
+In a way it is an implementation of the Push pattern within the boundaries of the request-response pattern.
+
+> **Server-Sent Events (SSE)** is a server push technology enabling a client to receive automatic updates from a server via an HTTP connection, and describes how servers can initiate data transmission towards clients once an initial client connection has been established.
+> 
+> They are commonly used to send message updates or continuous data streams to a browser client through a JavaScript API called EventSource.
+> 
+> The media type for SSE is `text/event-stream`.
+> 
+> [Server-sent events - Wikipedia](https://en.wikipedia.org/wiki/Server-sent_events)
+
+**How it works:**
+
+- Client sends a request.
+
+- Server sends events as part of the response
+
+- Server never writes the end of the response
+
+- It's still a request, it just never ends.
+
+Mock example of a stock value ticker.
+
+```http
+// Request
+GET /events HTTP/1.1
+Host: example.com
+Accept: text/event-stream
+Cache-Control: no-cache
+Connection: keep-alive
+
+// Response
+HTTP/1.1 200 OK
+Content-Type: text/event-stream
+Cache-Control: no-cache
+Connection: keep-alive
+
+data: {"price": 142.50, "symbol": "AAPL"}
+
+data: {"price": 142.55, "symbol": "AAPL"}
+
+data: {"price": 142.48, "symbol": "AAPL"}
+
+// Connection stays open — server keeps pushing indefinitely
+```
+
+> Another good real-life example is that of LLM chat clients. If you check the network tab in your browser when prompting a chatbot you'll see your prompt sent as an HTTP POST request and the response will be a stream of data incoming in the same response.
+
+**Pros:** real-time, browser-friendly, HTTP
+
+**Cons:** client must be online, client may not be able to handle data, browser limitations of 6 TCP connections (if using HTTP/1.1)
+
+
+
+### 
 
 
