@@ -2,10 +2,15 @@ package main
 
 import (
 	"bufio"
+	"context"
+	"errors"
 	"log"
 	"net"
+	"os/signal"
 	"strings"
 	"sync"
+	"syscall"
+	"time"
 )
 
 type Message struct {
@@ -17,6 +22,23 @@ type Client struct {
 	conn     net.Conn
 	id       string
 	outgoing chan Message // Client inbox. Server flushes out these messages to the client.
+}
+
+type Pool struct {
+	mu      sync.RWMutex
+	clients map[string]Client
+}
+
+func (p *Pool) subscribe(id string, client Client) {
+	defer p.mu.Unlock()
+	p.mu.Lock()
+	p.clients[id] = client
+}
+
+func (p *Pool) unsubscribe(id string) {
+	defer p.mu.Unlock()
+	p.mu.Lock()
+	delete(p.clients, id)
 }
 
 var (
@@ -33,45 +55,54 @@ func main() {
 		return
 	}
 
-	var wg sync.WaitGroup
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 
-	defer func() {
-		listener.Close()
-		wg.Wait()
-	}()
+	var senderWG sync.WaitGroup
+	var readConnWG sync.WaitGroup
+	var eventLoopWG sync.WaitGroup
+
+	defer stop()
 
 	log.Printf("Listening on %s", addr)
 
-	messagesChan := make(chan Message)
-	subscribeChan := make(chan Client)
-	unsubscribeChan := make(chan Client)
-	var clients = make(map[string]Client)
+	messagesChan := make(chan Message, 256)
+	pool := Pool{clients: make(map[string]Client)}
 
-	wg.Go(func() {
+	eventLoopWG.Go(func() {
 		for {
 			select {
-			case client := <-subscribeChan:
+			case <-ctx.Done():
 				{
-					// Add it to the list to keep track of connected clients
-					clients[client.id] = client
 
-					// Create goroutine to send messages to other clients concurrently
-					wg.Go(func() {
-						for msg := range client.outgoing {
-							sendMessage(client.conn, msg)
-						}
-					})
+					log.Println("Shutting down server...")
+					// 1. Stop accepting new connections
+					listener.Close()
+					// 2. Drain remaining messages and wait to finish
+					pool.mu.Lock()
+					for _, c := range pool.clients {
+						close(c.outgoing)
+					}
+					pool.mu.Unlock()
+
+					senderWG.Wait()
+
+					// 3. Close connections
+					pool.mu.Lock()
+					for _, c := range pool.clients {
+						c.conn.Close()
+					}
+					// 4. Delete clients and exit
+					pool.clients = nil
+					pool.mu.Unlock()
+					return
 				}
-			case client := <-unsubscribeChan:
-				{
-					close(client.outgoing)
-					delete(clients, client.id)
-				}
+
 			case message := <-messagesChan:
 				{
 					log.Printf("New message: '%s' from %s", message.text, message.from)
 					// Pass the message from the global inbox "messages" channel to all other clients' outgoing channels
-					for _, c := range clients {
+					pool.mu.RLock()
+					for _, c := range pool.clients {
 						if message.from == c.id { // Don't add to client inbox if message comes from them
 							continue
 						}
@@ -82,25 +113,38 @@ func main() {
 							// Slow client. Dropped. Ensures server is not blocked because of slow client
 						}
 					}
+					pool.mu.RUnlock()
 				}
 			}
 		}
 	})
 
-	for {
-		conn, err := listener.Accept()
+	readConnWG.Go(func() {
+		for {
+			conn, err := listener.Accept()
 
-		if err != nil {
-			log.Println("Error accepting connection: ", err)
-			continue
+			if errors.Is(err, net.ErrClosed) {
+				log.Println("Listener connection closed: ", err)
+				return
+			}
+
+			if err != nil {
+				log.Println("Error accepting connection: ", err)
+				continue
+			}
+			readConnWG.Go(func() { handleConnection(ctx, conn, messagesChan, &pool, &senderWG) })
 		}
-		wg.Go(func() { handleConnection(conn, messagesChan, subscribeChan, unsubscribeChan) })
-	}
+	})
+
+	<-ctx.Done()
+
+	senderWG.Wait()
+	readConnWG.Wait()
+	eventLoopWG.Wait()
 
 }
 
-func handleConnection(conn net.Conn, messagesChan chan Message, subscribeChan chan Client,
-	unsubscribeChan chan Client) {
+func handleConnection(ctx context.Context, conn net.Conn, messagesChan chan Message, pool *Pool, senderWG *sync.WaitGroup) {
 
 	id := getId(conn)
 	client := Client{conn: conn, id: id, outgoing: make(chan Message, 16)}
@@ -108,17 +152,40 @@ func handleConnection(conn net.Conn, messagesChan chan Message, subscribeChan ch
 	defer func() {
 		log.Printf("Closing connection with %s\n", conn.RemoteAddr().String())
 		conn.Close()
-		unsubscribeChan <- client
+		pool.unsubscribe(id)
 	}()
 
-	subscribeChan <- client
+	go func() {
+		<-ctx.Done()
+		conn.SetReadDeadline(time.Now()) // Stop receiving new messages once server shutdown starts
+	}()
+
+	pool.subscribe(id, client)
 	log.Printf("Client connection: %s\n", conn.RemoteAddr().String())
+
+	senderWG.Go(func() {
+		for msg := range client.outgoing {
+			err := sendMessage(client.conn, msg)
+			if err != nil {
+				return
+			}
+		}
+	})
 
 	scanner := bufio.NewScanner(conn)
 
 	for scanner.Scan() {
 		message := Message{from: id, text: scanner.Text()}
-		messagesChan <- message
+		select {
+		case messagesChan <- message:
+			// Message sent to channel
+		case <-ctx.Done():
+			{
+				log.Println("Stopping read because server is shutting down.")
+				return
+			}
+
+		}
 	}
 
 	if err := scanner.Err(); err != nil {
@@ -133,6 +200,16 @@ func getId(conn net.Conn) string {
 	return id
 }
 
-func sendMessage(conn net.Conn, message Message) {
-	conn.Write([]byte(message.from + ": " + message.text + "\n"))
+func sendMessage(conn net.Conn, message Message) error {
+	err := conn.SetWriteDeadline(time.Now().Add(3 * time.Second))
+	if err != nil {
+		log.Println(err)
+		return err
+	}
+	_, err = conn.Write([]byte(message.from + ": " + message.text + "\n"))
+	if err != nil {
+		log.Println("Error sending message: ", err)
+		return err
+	}
+	return nil
 }
