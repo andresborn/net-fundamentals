@@ -26,7 +26,8 @@ var GREETINGS = []string{
 func main() {
 	var wg sync.WaitGroup
 
-	for range 10 {
+	for range 100 {
+		time.Sleep(1 * time.Millisecond)
 		wg.Go(func() {
 			createClient()
 		})
