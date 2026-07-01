@@ -21,21 +21,97 @@ type Client struct {
 	outgoing chan Message // Client inbox. Server flushes out these messages to the client.
 }
 
-type Pool struct {
-	mu      sync.RWMutex
-	clients map[string]Client
+type Chatroom struct {
+	// Channels
+	subscribe   chan *Client
+	unsubscribe chan *Client
+	broadcast   chan Message
+
+	// State
+	clients map[string]*Client
+	mu      sync.Mutex
 }
 
-func (p *Pool) subscribe(id string, client Client) {
-	defer p.mu.Unlock()
-	p.mu.Lock()
-	p.clients[id] = client
+func (cr *Chatroom) handleRead(client *Client) {
+	scanner := bufio.NewScanner(client.conn)
+
+	for scanner.Scan() {
+		message := Message{from: client.id, text: scanner.Text()}
+		cr.broadcast <- message
+	}
+
+	if err := scanner.Err(); err != nil {
+		log.Printf("Error from %s: %v ", client.conn.RemoteAddr().String(), err)
+		return
+	}
 }
 
-func (p *Pool) unsubscribe(id string) {
-	defer p.mu.Unlock()
-	p.mu.Lock()
-	delete(p.clients, id)
+func (cr *Chatroom) handleWrite(client *Client) {
+
+	for message := range client.outgoing {
+		err := sendMessage(client.conn, message)
+		if err != nil {
+			log.Println("Error sending message: ", err)
+			return
+		}
+	}
+}
+
+func sendMessage(conn net.Conn, message Message) error {
+	err := conn.SetWriteDeadline(time.Now().Add(1 * time.Second))
+	if err != nil {
+		log.Println(err)
+		return err
+	}
+	_, err = conn.Write([]byte(message.from + ": " + message.text + "\n"))
+	if err != nil {
+		log.Println("Error sending message: ", err)
+		return err
+	}
+	return nil
+}
+
+func (cr *Chatroom) handleBroadcast(message Message) {
+	clients := make([]*Client, 0) // Local copy
+	cr.mu.Lock()
+	for _, client := range cr.clients {
+		if client.id == message.from {
+			// skip
+		}
+		clients = append(clients, client)
+
+	}
+	cr.mu.Unlock()
+
+	log.Printf("Broadcasting %s from %s\n", message.text, message.from)
+
+	for _, client := range clients {
+		select {
+		case client.outgoing <- message:
+		default:
+			log.Println("Message dropped for slow client: ", client.id)
+		}
+	}
+}
+
+func (cr *Chatroom) handleSub(client *Client) {
+	cr.mu.Lock()
+	cr.clients[client.id] = client
+	cr.mu.Unlock()
+}
+
+func (cr *Chatroom) handleUnsub(client *Client) {
+	cr.mu.Lock()
+	delete(cr.clients, client.id)
+	cr.mu.Unlock()
+
+	// Close channel safely
+	select {
+	case <-client.outgoing:
+		// Already closed
+	default:
+		close(client.outgoing)
+	}
 }
 
 var (
@@ -56,93 +132,69 @@ func main() {
 
 	log.Printf("Listening on %s", addr)
 
-	messagesChan := make(chan Message, 256)
-	pool := Pool{clients: make(map[string]Client)}
+	cr := Chatroom{
+		subscribe:   make(chan *Client),
+		unsubscribe: make(chan *Client),
+		broadcast:   make(chan Message),
+		clients:     map[string]*Client{},
+	}
 
+	// Event broker
 	go func() {
-		for message := range messagesChan {
-			{
-				log.Printf("New message: '%s' from %s", message.text, message.from)
-				// Pass the message from the global inbox "messages" channel to all other clients' outgoing channels
-				pool.mu.RLock()
-				for _, c := range pool.clients {
-					if message.from == c.id { // Don't add to client inbox if message comes from them
-						continue
-					}
-					select {
-
-					case c.outgoing <- message:
-					default:
-						// Slow client. Dropped. Ensures server is not blocked because of slow client
-					}
-				}
-				pool.mu.RUnlock()
-			}
-		}
-	}()
-
-	func() {
 		for {
-			conn, err := listener.Accept()
-
-			if errors.Is(err, net.ErrClosed) {
-				log.Println("Listener connection closed: ", err)
-				return
+			select {
+			case client := <-cr.subscribe:
+				cr.handleSub(client)
+			case client := <-cr.unsubscribe:
+				cr.handleUnsub(client)
+			case message := <-cr.broadcast:
+				cr.handleBroadcast(message)
 			}
-
-			if err != nil {
-				log.Println("Error accepting connection: ", err)
-				continue
-			}
-			go func() { handleConnection(conn, messagesChan, &pool) }()
 		}
 	}()
+
+	for {
+		conn, err := listener.Accept()
+
+		if errors.Is(err, net.ErrClosed) {
+			log.Println("Listener connection closed: ", err)
+			return
+		}
+
+		if err != nil {
+			log.Println("Error accepting connection: ", err)
+			continue
+		}
+		go handleConnection(conn, &cr)
+	}
 
 }
 
-func handleConnection(conn net.Conn, messagesChan chan Message, pool *Pool) {
+func handleConnection(conn net.Conn, cr *Chatroom) {
 
 	id := getId(conn)
-	client := Client{conn: conn, id: id, outgoing: make(chan Message, 16)}
+	client := &Client{conn: conn, id: id, outgoing: make(chan Message, 16)}
 
 	defer func() {
 		log.Printf("Closing connection with %s\n", conn.RemoteAddr().String())
-		conn.Close()
-		pool.unsubscribe(id)
+		client.conn.Close()
 	}()
 
-	pool.subscribe(id, client)
 	log.Printf("Client connection: %s\n", conn.RemoteAddr().String())
 
-	scanner := bufio.NewScanner(conn)
+	cr.subscribe <- client
 
-	for scanner.Scan() {
-		message := Message{from: id, text: scanner.Text()}
-		messagesChan <- message
-	}
+	go cr.handleWrite(client)
 
-	if err := scanner.Err(); err != nil {
-		log.Printf("Error from %s: %v ", conn.RemoteAddr().String(), err)
-		return
-	}
+	cr.handleRead(client) // Blocks until client disconnect returns scanner error
+
+	// handleUnsub closes channel. cr.handleWrite finishes sending queued messages (which will most
+	// likely return an error), exits, unsubscribes, and finally connection closes on defer.
+	cr.unsubscribe <- client
 
 }
 
 func getId(conn net.Conn) string {
 	id := strings.Split(conn.RemoteAddr().String(), ":")[1]
 	return id
-}
-
-func sendMessage(conn net.Conn, message Message) error {
-	err := conn.SetWriteDeadline(time.Now().Add(3 * time.Second))
-	if err != nil {
-		log.Println(err)
-		return err
-	}
-	_, err = conn.Write([]byte(message.from + ": " + message.text + "\n"))
-	if err != nil {
-		log.Println("Error sending message: ", err)
-		return err
-	}
-	return nil
 }
