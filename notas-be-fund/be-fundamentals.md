@@ -6,8 +6,6 @@
 
 *Do you have that? Sure, here it is.*
 
-
-
 - Client sends a message
 
 - Server parses requests
@@ -103,8 +101,6 @@ console.log("Runs immediately!");
 > 
 > [Push technology - Wikipedia](https://en.wikipedia.org/wiki/Push_technology)
 
-
-
 Push requires:
 
 - Client subscribes/connects once
@@ -113,15 +109,11 @@ Push requires:
 
 - The protocols that implement Push are usually **bidirectional**
 
-
-
 Examples:
 
 - WebSockets (bidirectional push)
 
 - Server-Sent Events (unidirectional push: server → client only)
-
-
 
 > **RabbitMQ** uses the Push pattern. The message broker pushes messages to the clients. 
 > 
@@ -130,8 +122,6 @@ Examples:
 > **Kafka**, another popular message broker uses polling, where the clients ask for the data when they are ready.
 > 
 > - Consumers pull (poll) at their own pace; this is *long polling* or *pull-based*, not push
-
-
 
 **Pros:**
 
@@ -142,8 +132,6 @@ Examples:
 - Client must be online to receive data
 
 - Client might not be able to handle data
-
-
 
 ### Short Polling
 
@@ -189,8 +177,6 @@ The client sends multiple requests checking if the request is done.
 
 - Note: some variations may implement timeouts.
 
-
-
 > Note: I've found conflicting definitions for this pattern. Others suggest that Long Polling never returns a jobId, it simply holds the request until it is ready.
 > 
 > - Client sends a request
@@ -203,23 +189,15 @@ The client sends multiple requests checking if the request is done.
 > 
 > It would seem that Kafka operates like this.
 
-
-
 > **Kafka**, the message broker, implements this pattern in it's design. If you have clients that cannot process the data, it could get lost, so instead it is the clients who request the data when ready.
-
-
 
 **Pros:** Less requests, more friendly to the network and the backend infrastructure.
 
 **Cons:** Not real-time.
 
-
-
 ### Publish-subscribe
 
 The publish–subscribe pattern (pub/sub) is a messaging pattern in which message senders, called **publishers**, categorize messages into **classes** (or topics), and send them without needing to know which components will receive them. Message recipients, called **subscribers**, express interest in one or more classes and only receive messages in those classes, without needing to know the identity of the publishers. [Publish–subscribe pattern - Wikipedia](https://en.wikipedia.org/wiki/Publish%E2%80%93subscribe_pattern)
-
-
 
 **Flow:**
 
@@ -229,8 +207,6 @@ The publish–subscribe pattern (pub/sub) is a messaging pattern in which messag
 
 - Subscribers receive the message from the broker and process it as needed.
 
-
-
 Subscribers tell the broker that they are interested in a topic in order to receive messages from that topic.
 
 Subscribers and publishers don't need to be aware of each other (**louse coupling**). They interact only through the message broker.
@@ -239,26 +215,18 @@ Subscribers and publishers don't need to be aware of each other (**louse couplin
 
 > See [Publisher-Subscriber Model | Baeldung on Computer Science](https://www.baeldung.com/cs/publisher-subscriber-model) for reference and a really good explanation.
 
-
-
 **Pros:** Scales easily, great for microservices, louse coupling and clients can connect and disconnect as they wish.
 
 **Cons:** Message delivery issues (messages might be lost, we can't know for sure if message was received), high complexity, network saturation
-
-
 
 ### Multiplexing vs Demultiplexing
 
 > Reference for this section: [Transport Layer: Multiplexing and Demultiplexing | Baeldung on Computer Science](https://www.baeldung.com/cs/transport-layer-multiplexing-vs-demultiplexing)
 
-
-
 Multiplexing involves combining multiple data streams into a single 
 transmission channel. On the other hand, demultiplexing involves 
 separating a single transmission channel into multiple data streams at 
 the receiving end.
-
-
 
 #### Multiplexing
 
@@ -277,8 +245,6 @@ Diagram of both:
 ![TDMA Example](https://www.baeldung.com/wp-content/uploads/sites/4/2023/04/TDMA_Example.png)
 
 > [HTTP/2](https://en.wikipedia.org/wiki/HTTP/2) implements multiplexing by sending multiple requests over a single TCP connection (fixing the HTTP-transaction-level head-of-line blocking "Head-of-line blocking" problem in HTTP 1.x
-
-
 
 ### Stateful vs Stateless
 
@@ -310,8 +276,6 @@ TODO
 
 [Sidecar Design Pattern for Microservices - GeeksforGeeks](https://www.geeksforgeeks.org/system-design/sidecar-design-pattern-for-microservices/)
 
-
-
 ## Communication Protocols (mostly Application-Layer)
 
 - TLS
@@ -325,10 +289,6 @@ TODO
 - gRPC
 
 - WebRTC
-
-
-
-
 
 ### Server-Sent Events
 
@@ -384,8 +344,6 @@ data: {"price": 142.48, "symbol": "AAPL"}
 **Pros:** real-time, browser-friendly, HTTP
 
 **Cons:** client must be online, client may not be able to handle data, browser limitations of 6 TCP connections (if using HTTP/1.1)
-
-
 
 ### 
 
