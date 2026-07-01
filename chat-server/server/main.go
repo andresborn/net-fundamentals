@@ -2,11 +2,14 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"log"
 	"net"
+	"os/signal"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -153,11 +156,23 @@ func main() {
 		}
 	}()
 
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	var writeWG sync.WaitGroup
+	var shutdownWG sync.WaitGroup
+
+	defer stop()
+
+	shutdownWG.Go(func() {
+		<-ctx.Done()
+		shutdown(listener, &cr, &writeWG)
+	})
+
 	for {
 		conn, err := listener.Accept()
 
 		if errors.Is(err, net.ErrClosed) {
 			log.Println("Listener connection closed: ", err)
+			shutdownWG.Wait() // Not happy with this pattern, rethink in the future.
 			return
 		}
 
@@ -165,12 +180,12 @@ func main() {
 			log.Println("Error accepting connection: ", err)
 			continue
 		}
-		go handleConnection(conn, &cr)
+		go handleConnection(conn, &cr, &writeWG)
 	}
 
 }
 
-func handleConnection(conn net.Conn, cr *Chatroom) {
+func handleConnection(conn net.Conn, cr *Chatroom, writeWg *sync.WaitGroup) {
 
 	id := getId(conn)
 	client := &Client{conn: conn, id: id, outgoing: make(chan Message, 16)}
@@ -184,7 +199,7 @@ func handleConnection(conn net.Conn, cr *Chatroom) {
 
 	cr.subscribe <- client
 
-	go cr.handleWrite(client)
+	writeWg.Go(func() { cr.handleWrite(client) })
 
 	cr.handleRead(client) // Blocks until client disconnect returns scanner error
 
@@ -197,4 +212,41 @@ func handleConnection(conn net.Conn, cr *Chatroom) {
 func getId(conn net.Conn) string {
 	id := strings.Split(conn.RemoteAddr().String(), ":")[1]
 	return id
+}
+
+// Graceful shutdown
+func shutdown(listener net.Listener, cr *Chatroom, writeWG *sync.WaitGroup) {
+
+	log.Println("Shutting down gracefully...")
+
+	listener.Close()
+
+	// Close outgoing channels
+	cr.mu.Lock()
+	for _, client := range cr.clients {
+		// Safe close
+		select {
+		case <-client.outgoing:
+		default:
+			close(client.outgoing)
+		}
+	}
+	cr.mu.Unlock()
+
+	// Wait for messages to be sent/drained
+	writeWG.Wait()
+
+	// close connections
+	cr.mu.Lock()
+	for _, client := range cr.clients {
+		client.conn.Close()
+	}
+	cr.mu.Unlock()
+
+	// Delete clients
+	cr.mu.Lock()
+	cr.clients = nil
+	cr.mu.Unlock()
+
+	log.Println("Shutdown complete.")
 }
