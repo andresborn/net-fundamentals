@@ -2,14 +2,11 @@ package main
 
 import (
 	"bufio"
-	"context"
 	"errors"
 	"log"
 	"net"
-	"os/signal"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -79,7 +76,7 @@ func (cr *Chatroom) handleBroadcast(message Message) {
 	cr.mu.Lock()
 	for _, client := range cr.clients {
 		if client.id == message.from {
-			// skip
+			continue
 		}
 		clients = append(clients, client)
 
@@ -156,23 +153,11 @@ func main() {
 		}
 	}()
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	var writeWG sync.WaitGroup
-	var shutdownWG sync.WaitGroup
-
-	defer stop()
-
-	shutdownWG.Go(func() {
-		<-ctx.Done()
-		shutdown(listener, &cr, &writeWG)
-	})
-
 	for {
 		conn, err := listener.Accept()
 
 		if errors.Is(err, net.ErrClosed) {
 			log.Println("Listener connection closed: ", err)
-			shutdownWG.Wait() // Not happy with this pattern, rethink in the future.
 			return
 		}
 
@@ -180,12 +165,12 @@ func main() {
 			log.Println("Error accepting connection: ", err)
 			continue
 		}
-		go handleConnection(conn, &cr, &writeWG)
+		go handleConnection(conn, &cr)
 	}
 
 }
 
-func handleConnection(conn net.Conn, cr *Chatroom, writeWg *sync.WaitGroup) {
+func handleConnection(conn net.Conn, cr *Chatroom) {
 
 	id := getId(conn)
 	client := &Client{conn: conn, id: id, outgoing: make(chan Message, 16)}
@@ -199,7 +184,7 @@ func handleConnection(conn net.Conn, cr *Chatroom, writeWg *sync.WaitGroup) {
 
 	cr.subscribe <- client
 
-	writeWg.Go(func() { cr.handleWrite(client) })
+	go cr.handleWrite(client)
 
 	cr.handleRead(client) // Blocks until client disconnect returns scanner error
 
