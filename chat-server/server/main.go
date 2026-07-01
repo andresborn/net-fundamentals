@@ -60,27 +60,23 @@ func main() {
 	pool := Pool{clients: make(map[string]Client)}
 
 	go func() {
-		for {
-			select {
-
-			case message := <-messagesChan:
-				{
-					log.Printf("New message: '%s' from %s", message.text, message.from)
-					// Pass the message from the global inbox "messages" channel to all other clients' outgoing channels
-					pool.mu.RLock()
-					for _, c := range pool.clients {
-						if message.from == c.id { // Don't add to client inbox if message comes from them
-							continue
-						}
-						select {
-
-						case c.outgoing <- message:
-						default:
-							// Slow client. Dropped. Ensures server is not blocked because of slow client
-						}
+		for message := range messagesChan {
+			{
+				log.Printf("New message: '%s' from %s", message.text, message.from)
+				// Pass the message from the global inbox "messages" channel to all other clients' outgoing channels
+				pool.mu.RLock()
+				for _, c := range pool.clients {
+					if message.from == c.id { // Don't add to client inbox if message comes from them
+						continue
 					}
-					pool.mu.RUnlock()
+					select {
+
+					case c.outgoing <- message:
+					default:
+						// Slow client. Dropped. Ensures server is not blocked because of slow client
+					}
 				}
+				pool.mu.RUnlock()
 			}
 		}
 	}()
