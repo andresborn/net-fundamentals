@@ -2,14 +2,11 @@ package main
 
 import (
 	"bufio"
-	"context"
 	"errors"
 	"log"
 	"net"
-	"os/signal"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -55,47 +52,16 @@ func main() {
 		return
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
-
-	var senderWG sync.WaitGroup
-	var readConnWG sync.WaitGroup
-	var eventLoopWG sync.WaitGroup
-
-	defer stop()
+	defer listener.Close()
 
 	log.Printf("Listening on %s", addr)
 
 	messagesChan := make(chan Message, 256)
 	pool := Pool{clients: make(map[string]Client)}
 
-	eventLoopWG.Go(func() {
+	go func() {
 		for {
 			select {
-			case <-ctx.Done():
-				{
-
-					log.Println("Shutting down server...")
-					// 1. Stop accepting new connections
-					listener.Close()
-					// 2. Drain remaining messages and wait to finish
-					pool.mu.Lock()
-					for _, c := range pool.clients {
-						close(c.outgoing)
-					}
-					pool.mu.Unlock()
-
-					senderWG.Wait()
-
-					// 3. Close connections
-					pool.mu.Lock()
-					for _, c := range pool.clients {
-						c.conn.Close()
-					}
-					// 4. Delete clients and exit
-					pool.clients = nil
-					pool.mu.Unlock()
-					return
-				}
 
 			case message := <-messagesChan:
 				{
@@ -117,9 +83,9 @@ func main() {
 				}
 			}
 		}
-	})
+	}()
 
-	readConnWG.Go(func() {
+	func() {
 		for {
 			conn, err := listener.Accept()
 
@@ -132,19 +98,13 @@ func main() {
 				log.Println("Error accepting connection: ", err)
 				continue
 			}
-			readConnWG.Go(func() { handleConnection(ctx, conn, messagesChan, &pool, &senderWG) })
+			go func() { handleConnection(conn, messagesChan, &pool) }()
 		}
-	})
-
-	<-ctx.Done()
-
-	senderWG.Wait()
-	readConnWG.Wait()
-	eventLoopWG.Wait()
+	}()
 
 }
 
-func handleConnection(ctx context.Context, conn net.Conn, messagesChan chan Message, pool *Pool, senderWG *sync.WaitGroup) {
+func handleConnection(conn net.Conn, messagesChan chan Message, pool *Pool) {
 
 	id := getId(conn)
 	client := Client{conn: conn, id: id, outgoing: make(chan Message, 16)}
@@ -155,37 +115,14 @@ func handleConnection(ctx context.Context, conn net.Conn, messagesChan chan Mess
 		pool.unsubscribe(id)
 	}()
 
-	go func() {
-		<-ctx.Done()
-		conn.SetReadDeadline(time.Now()) // Stop receiving new messages once server shutdown starts
-	}()
-
 	pool.subscribe(id, client)
 	log.Printf("Client connection: %s\n", conn.RemoteAddr().String())
-
-	senderWG.Go(func() {
-		for msg := range client.outgoing {
-			err := sendMessage(client.conn, msg)
-			if err != nil {
-				return
-			}
-		}
-	})
 
 	scanner := bufio.NewScanner(conn)
 
 	for scanner.Scan() {
 		message := Message{from: id, text: scanner.Text()}
-		select {
-		case messagesChan <- message:
-			// Message sent to channel
-		case <-ctx.Done():
-			{
-				log.Println("Stopping read because server is shutting down.")
-				return
-			}
-
-		}
+		messagesChan <- message
 	}
 
 	if err := scanner.Err(); err != nil {
