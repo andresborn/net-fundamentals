@@ -199,7 +199,7 @@ func getId(conn net.Conn) string {
 	return id
 }
 
-// Graceful shutdown
+// Graceful shutdown, not implemented
 func shutdown(listener net.Listener, cr *Chatroom, writeWG *sync.WaitGroup) {
 
 	log.Println("Shutting down gracefully...")
